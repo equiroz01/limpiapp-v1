@@ -1,0 +1,571 @@
+// LimpiApp Database Schema
+// PostgreSQL with Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USERS AND AUTHENTICATION
+// ============================================
+
+enum UserType {
+  CLIENT
+  HOUSEKEEPER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+  PENDING_VERIFICATION
+}
+
+model User {
+  id            String     @id @default(uuid())
+  email         String     @unique
+  phone         String?    @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  profilePhoto  String?
+  dateOfBirth   DateTime?
+  gender        String?
+  userType      UserType
+  status        UserStatus @default(PENDING_VERIFICATION)
+
+  emailVerified Boolean    @default(false)
+  phoneVerified Boolean    @default(false)
+
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  lastLogin     DateTime?
+
+  // Relations
+  client        Client?
+  housekeeper   Housekeeper?
+  addresses     Address[]
+  reviews       Review[]
+  notifications Notification[]
+  messages      Message[]
+  trustScore    TrustScore?
+
+  @@index([email])
+  @@index([phone])
+  @@index([userType])
+  @@map("users")
+}
+
+// ============================================
+// CLIENT PROFILE
+// ============================================
+
+model Client {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  preferences     Json?    // Home size, favorite services, etc.
+  totalBookings   Int      @default(0)
+  totalSpent      Decimal  @default(0) @db.Decimal(10, 2)
+  averageRating   Decimal? @db.Decimal(3, 2)
+  walletBalance   Decimal  @default(0) @db.Decimal(10, 2)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  bookingsAsClient Booking[] @relation("ClientBookings")
+  paymentMethods   PaymentMethod[]
+  trustScore       TrustScore?
+
+  @@map("clients")
+}
+
+// ============================================
+// HOUSEKEEPER PROFILE
+// ============================================
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  NEEDS_REVIEW
+}
+
+model Housekeeper {
+  id                    String             @id @default(uuid())
+  userId                String             @unique
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  bio                   String?            @db.Text
+  yearsExperience       Int?
+  hourlyRate            Decimal            @db.Decimal(8, 2)
+  servicesOffered       String[]           // ['cleaning', 'cooking', 'bathrooms']
+  hasOwnSupplies        Boolean            @default(false)
+  coverageRadiusKm      Int                @default(10)
+  availabilitySchedule  Json?              // Weekly schedule
+
+  // Verification
+  isVerified            Boolean            @default(false)
+  verificationStatus    VerificationStatus @default(PENDING)
+  identityVerified      Boolean            @default(false)
+  backgroundCheckStatus VerificationStatus @default(PENDING)
+  backgroundCheckDate   DateTime?
+
+  // Statistics
+  totalServices         Int                @default(0)
+  totalEarned           Decimal            @default(0) @db.Decimal(10, 2)
+  averageRating         Decimal?           @db.Decimal(3, 2)
+  totalReviews          Int                @default(0)
+  acceptanceRate        Decimal?           @db.Decimal(5, 2)
+  completionRate        Decimal?           @db.Decimal(5, 2)
+  cancellationRate      Decimal?           @db.Decimal(5, 2)
+
+  // Current status
+  isAvailable           Boolean            @default(false)
+  currentlyServing      Boolean            @default(false)
+
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  // Relations
+  bookingsAsHousekeeper Booking[]          @relation("HousekeeperBookings")
+  verification          Verification?
+  trustScore            TrustScore?
+  bankAccount           BankAccount?
+
+  @@index([isAvailable, verificationStatus])
+  @@map("housekeepers")
+}
+
+// ============================================
+// ADDRESSES
+// ============================================
+
+model Address {
+  id                    String   @id @default(uuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  label                 String?  // 'home', 'office', etc.
+  streetAddress         String
+  apartmentNumber       String?
+  city                  String
+  state                 String?
+  postalCode            String?
+  country               String   @default("MX")
+  latitude              Decimal? @db.Decimal(10, 8)
+  longitude             Decimal? @db.Decimal(11, 8)
+  additionalInstructions String? @db.Text
+  isDefault             Boolean  @default(false)
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  // Relations
+  bookings              Booking[]
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+// ============================================
+// BOOKINGS
+// ============================================
+
+enum BookingStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELLED
+  IN_PROGRESS
+  COMPLETED
+  DISPUTED
+}
+
+model Booking {
+  id                      String        @id @default(uuid())
+  bookingCode             String        @unique // e.g., LMP-4532
+
+  // Participants
+  clientId                String
+  client                  Client        @relation("ClientBookings", fields: [clientId], references: [id])
+  housekeeperId           String
+  housekeeper             Housekeeper   @relation("HousekeeperBookings", fields: [housekeeperId], references: [id])
+  addressId               String
+  address                 Address       @relation(fields: [addressId], references: [id])
+
+  // Timing
+  scheduledDate           DateTime
+  scheduledStartTime      DateTime
+  scheduledEndTime        DateTime
+  estimatedDurationMinutes Int
+
+  actualStartTime         DateTime?
+  actualEndTime           DateTime?
+  actualDurationMinutes   Int?
+
+  // Services
+  servicesRequested       String[]      // ['cleaning', 'bathrooms']
+  homeSize                String?       // 'small', 'medium', 'large'
+  hasPets                 Boolean       @default(false)
+  specialInstructions     String?       @db.Text
+
+  // Pricing
+  basePrice               Decimal       @db.Decimal(8, 2)
+  extraServicesPrice      Decimal       @default(0) @db.Decimal(8, 2)
+  extraTimePrice          Decimal       @default(0) @db.Decimal(8, 2)
+  subtotal                Decimal       @db.Decimal(8, 2)
+  serviceFee              Decimal       @db.Decimal(8, 2)
+  tax                     Decimal       @db.Decimal(8, 2)
+  tip                     Decimal       @default(0) @db.Decimal(8, 2)
+  totalPrice              Decimal       @db.Decimal(8, 2)
+
+  // Status
+  status                  BookingStatus @default(PENDING)
+  cancellationReason      String?       @db.Text
+  cancelledBy             String?       // 'client', 'housekeeper', 'system'
+  cancelledAt             DateTime?
+
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
+  acceptedAt              DateTime?
+  completedAt             DateTime?
+
+  // Relations
+  payment                 Payment?
+  review                  Review?
+  dispute                 Dispute?
+
+  @@index([clientId])
+  @@index([housekeeperId])
+  @@index([status])
+  @@index([scheduledDate])
+  @@map("bookings")
+}
+
+// ============================================
+// PAYMENTS
+// ============================================
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+model Payment {
+  id                    String        @id @default(uuid())
+  bookingId             String        @unique
+  booking               Booking       @relation(fields: [bookingId], references: [id])
+
+  amount                Decimal       @db.Decimal(10, 2)
+  currency              String        @default("MXN")
+
+  paymentMethod         String?       // 'card', 'cash', 'paypal'
+  paymentProvider       String?       // 'stripe', 'paypal'
+
+  // Stripe IDs
+  stripePaymentIntentId String?
+  stripeChargeId        String?
+
+  status                PaymentStatus @default(PENDING)
+
+  cardLast4             String?
+  cardBrand             String?
+
+  refundAmount          Decimal?      @db.Decimal(10, 2)
+  refundReason          String?       @db.Text
+  refundedAt            DateTime?
+
+  createdAt             DateTime      @default(now())
+  processedAt           DateTime?
+
+  @@index([bookingId])
+  @@map("payments")
+}
+
+model PaymentMethod {
+  id               String   @id @default(uuid())
+  clientId         String
+  client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  stripePaymentMethodId String @unique
+  cardBrand        String
+  cardLast4        String
+  cardExpMonth     Int
+  cardExpYear      Int
+  isDefault        Boolean  @default(false)
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([clientId])
+  @@map("payment_methods")
+}
+
+// ============================================
+// REVIEWS
+// ============================================
+
+model Review {
+  id                          String   @id @default(uuid())
+  bookingId                   String   @unique
+  booking                     Booking  @relation(fields: [bookingId], references: [id])
+
+  // Client reviews Housekeeper (public)
+  clientToHousekeeperRating   Int?     // 1-5
+  clientToHousekeeperReview   String?  @db.Text
+  clientReviewAspects         Json?    // {punctuality: true, quality: true, ...}
+
+  // Housekeeper reviews Client (private)
+  housekeeperToClientRating   Int?     // 1-5
+  housekeeperComments         String?  @db.Text
+
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  // Relation
+  userId                      String
+  user                        User     @relation(fields: [userId], references: [id])
+
+  @@map("reviews")
+}
+
+// ============================================
+// VERIFICATION
+// ============================================
+
+model Verification {
+  id                       String             @id @default(uuid())
+  housekeeperId            String             @unique
+  housekeeper              Housekeeper        @relation(fields: [housekeeperId], references: [id], onDelete: Cascade)
+
+  // Identity
+  identityStatus           VerificationStatus @default(PENDING)
+  identityProvider         String?            // 'stripe', 'onfido', 'manual'
+  identitySessionId        String?
+  identityVerifiedAt       DateTime?
+  identityExpiresAt        DateTime?
+
+  // Documents
+  documentType             String?
+  documentNumber           String?
+  documentCountry          String?
+  documentExpiry           DateTime?
+
+  // Email & Phone
+  emailVerified            Boolean            @default(false)
+  emailVerifiedAt          DateTime?
+  phoneVerified            Boolean            @default(false)
+  phoneVerifiedAt          DateTime?
+
+  // Background check
+  backgroundCheckStatus    VerificationStatus @default(PENDING)
+  backgroundCheckProvider  String?
+  backgroundCheckCompletedAt DateTime?
+  backgroundCheckExpiresAt DateTime?
+  backgroundCheckResult    Json?
+
+  // References
+  referencesStatus         VerificationStatus @default(PENDING)
+  referencesCount          Int                @default(0)
+  referencesData           Json?
+
+  // Interview
+  interviewStatus          VerificationStatus @default(PENDING)
+  interviewDate            DateTime?
+  interviewNotes           String?            @db.Text
+  interviewRating          Int?
+
+  // Level
+  verificationLevel        String?            // 'bronze', 'silver', 'gold', 'diamond'
+
+  // Re-verification
+  needsReverification      Boolean            @default(false)
+  lastVerifiedAt           DateTime?
+  nextVerificationDue      DateTime?
+
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+
+  @@map("verifications")
+}
+
+// ============================================
+// TRUST SCORE
+// ============================================
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model TrustScore {
+  id                String     @id @default(uuid())
+  userId            String?    @unique
+  user              User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId          String?    @unique
+  client            Client?    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  housekeeperId     String?    @unique
+  housekeeper       Housekeeper? @relation(fields: [housekeeperId], references: [id], onDelete: Cascade)
+
+  score             Int        @default(0) // 0-100
+
+  verificationScore Int        @default(0)
+  behavioralScore   Int        @default(0)
+  transactionScore  Int        @default(0)
+  reviewScore       Int        @default(0)
+
+  scoreHistory      Json?
+
+  riskLevel         RiskLevel  @default(MEDIUM)
+  isFlagged         Boolean    @default(false)
+  flagReasons       String[]
+
+  lastCalculatedAt  DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  @@map("trust_scores")
+}
+
+// ============================================
+// DISPUTES
+// ============================================
+
+enum DisputeStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  CLOSED
+}
+
+model Dispute {
+  id              String        @id @default(uuid())
+  bookingId       String        @unique
+  booking         Booking       @relation(fields: [bookingId], references: [id])
+
+  initiatedBy     String        // user id
+  against         String        // user id
+
+  category        String        // 'payment', 'quality', 'damage', etc.
+  description     String        @db.Text
+  evidence        Json?         // URLs to photos, videos, etc.
+
+  status          DisputeStatus @default(OPEN)
+  resolution      String?       @db.Text
+  resolutionNotes String?       @db.Text
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  resolvedAt      DateTime?
+
+  @@map("disputes")
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type        String   // 'booking_confirmed', 'housekeeper_arrived', etc.
+  title       String
+  body        String   @db.Text
+  data        Json?
+
+  isRead      Boolean  @default(false)
+  readAt      DateTime?
+
+  pushSent    Boolean  @default(false)
+  emailSent   Boolean  @default(false)
+  smsSent     Boolean  @default(false)
+
+  createdAt   DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// ============================================
+// MESSAGES (Chat)
+// ============================================
+
+model Conversation {
+  id                     String    @id @default(uuid())
+  bookingId              String?
+  clientId               String
+  housekeeperId          String
+
+  lastMessageAt          DateTime?
+  lastMessagePreview     String?
+
+  clientUnreadCount      Int       @default(0)
+  housekeeperUnreadCount Int       @default(0)
+
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  // Relations
+  messages               Message[]
+
+  @@map("conversations")
+}
+
+model Message {
+  id              String       @id @default(uuid())
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId        String
+  sender          User         @relation(fields: [senderId], references: [id])
+
+  messageType     String       @default("text") // 'text', 'image', 'location'
+  messageContent  String       @db.Text
+  mediaUrl        String?
+
+  isRead          Boolean      @default(false)
+  readAt          DateTime?
+
+  createdAt       DateTime     @default(now())
+
+  @@index([conversationId])
+  @@map("messages")
+}
+
+// ============================================
+// BANK ACCOUNTS (for Housekeepers)
+// ============================================
+
+model BankAccount {
+  id              String      @id @default(uuid())
+  housekeeperId   String      @unique
+  housekeeper     Housekeeper @relation(fields: [housekeeperId], references: [id], onDelete: Cascade)
+
+  bankName        String
+  accountNumber   String      // Encrypted
+  accountHolder   String
+  clabe           String?     // México
+
+  isVerified      Boolean     @default(false)
+  isDefault       Boolean     @default(true)
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@map("bank_accounts")
+}
