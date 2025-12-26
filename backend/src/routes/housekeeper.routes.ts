@@ -1,25 +1,58 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/auth.middleware';
+import { authenticate, authorize } from '../middleware/auth.middleware';
 import {
   searchHousekeepers,
   getHousekeeperProfile,
   updateHousekeeperProfile,
-  getHousekeeperReviews
+  getHousekeeperReviews,
+  submitVerificationData,
+  updateVerificationStatus,
+  getHousekeeperDashboard,
+  updateAvailability,
 } from '../controllers/housekeeper.controller';
 
 const router = Router();
 
 // Public routes
-// GET /api/v1/housekeepers/search
 router.get('/search', searchHousekeepers);
-
-// GET /api/v1/housekeepers/:id
 router.get('/:id', getHousekeeperProfile);
-
-// GET /api/v1/housekeepers/:id/reviews
 router.get('/:id/reviews', getHousekeeperReviews);
 
-// Protected routes
-router.put('/profile', authenticate, updateHousekeeperProfile);
+// Protected routes for Housekeepers
+router.get(
+  '/dashboard',
+  authenticate,
+  authorize('HOUSEKEEPER'),
+  getHousekeeperDashboard
+);
+
+router.put(
+  '/profile',
+  authenticate,
+  authorize('HOUSEKEEPER'),
+  updateHousekeeperProfile
+);
+
+router.patch(
+  '/availability',
+  authenticate,
+  authorize('HOUSEKEEPER'),
+  updateAvailability
+);
+
+router.post(
+  '/verify',
+  authenticate,
+  authorize('HOUSEKEEPER'),
+  submitVerificationData
+);
+
+// Protected route for Admins
+router.put(
+  '/:id/verify/status',
+  authenticate,
+  authorize('ADMIN'),
+  updateVerificationStatus
+);
 
 export default router;

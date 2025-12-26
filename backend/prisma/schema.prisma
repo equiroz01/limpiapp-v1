@@ -2,7 +2,8 @@
 // PostgreSQL with Prisma ORM
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -214,9 +215,12 @@ model Booking {
 
   // Services
   servicesRequested       String[]      // ['cleaning', 'bathrooms']
-  homeSize                String?       // 'small', 'medium', 'large'
+  propertyType            String
+  bedrooms                Int
+  bathrooms               Int
+  squareMeters            Int
   hasPets                 Boolean       @default(false)
-  specialInstructions     String?       @db.Text
+  clientNotes             String?       @db.Text
 
   // Pricing
   basePrice               Decimal       @db.Decimal(8, 2)

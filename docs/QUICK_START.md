@@ -355,3 +355,13 @@ Si todos los checks están ✅, **¡estás listo para empezar a desarrollar!**
 ---
 
 **Happy Coding! 🚀**
+
+  Usuario Cliente:
+  - Email: cliente@limpiapp.com
+  - Password: Test123456
+  - Tipo: CLIENT
+
+  Usuario Profesional:
+  - Email: profesional@limpiapp.com
+  - Password: Test123456
+  - Tipo: HOUSEKEEPER

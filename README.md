@@ -619,4 +619,6 @@ MIT License - Ver archivo `LICENSE` para más detalles
 
 ---
 
-**¡Hecho con ❤️ en México 🇲🇽**
+**¡Hecho con ❤️ en Panamá **
+* Email: admin@limpiapp.com
+* Contraseña: admin123 (para entorno local con seed data)

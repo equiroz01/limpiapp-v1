@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, BookingStatus } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { logger } from '../utils/logger';
 
@@ -31,50 +31,35 @@ export const createBooking = async (
       scheduledStartTime,
       estimatedDurationMinutes,
       servicesRequested,
-      homeSize,
+      propertyType,
+      bedrooms,
+      bathrooms,
+      squareMeters,
       hasPets,
-      specialInstructions
+      clientNotes,
     } = req.body;
 
-    // Get client
-    const client = await prisma.client.findUnique({
-      where: { userId: req.user!.id }
-    });
-
+    const client = await prisma.client.findUnique({ where: { userId: req.user!.id } });
     if (!client) {
-      res.status(404).json({
-        success: false,
-        message: 'Client profile not found'
-      });
+      res.status(404).json({ success: false, message: 'Client profile not found' });
       return;
     }
 
-    // Get housekeeper to calculate price
-    const housekeeper = await prisma.housekeeper.findUnique({
-      where: { id: housekeeperId }
-    });
-
+    const housekeeper = await prisma.housekeeper.findUnique({ where: { id: housekeeperId } });
     if (!housekeeper) {
-      res.status(404).json({
-        success: false,
-        message: 'Housekeeper not found'
-      });
+      res.status(404).json({ success: false, message: 'Housekeeper not found' });
       return;
     }
 
-    // Calculate pricing
     const hourlyRate = parseFloat(housekeeper.hourlyRate.toString());
     const hours = estimatedDurationMinutes / 60;
     const basePrice = hourlyRate * hours;
-    const serviceFee = basePrice * 0.1; // 10% service fee
-    const tax = basePrice * 0.16; // 16% IVA
+    const serviceFee = basePrice * 0.1;
+    const tax = basePrice * 0.16;
     const totalPrice = basePrice + serviceFee + tax;
-
-    // Calculate scheduled end time
     const startTime = new Date(scheduledStartTime);
     const endTime = new Date(startTime.getTime() + estimatedDurationMinutes * 60000);
 
-    // Create booking
     const booking = await prisma.booking.create({
       data: {
         bookingCode: generateBookingCode(),
@@ -86,41 +71,27 @@ export const createBooking = async (
         scheduledEndTime: endTime,
         estimatedDurationMinutes,
         servicesRequested,
-        homeSize,
+        propertyType,
+        bedrooms,
+        bathrooms,
+        squareMeters,
         hasPets,
-        specialInstructions,
+        clientNotes,
         basePrice,
         serviceFee,
         tax,
         subtotal: basePrice,
         totalPrice,
-        status: 'PENDING'
+        status: 'PENDING',
       },
       include: {
-        housekeeper: {
-          include: {
-            user: {
-              select: {
-                firstName: true,
-                lastName: true,
-                profilePhoto: true
-              }
-            }
-          }
-        },
-        address: true
-      }
+        housekeeper: { include: { user: { select: { firstName: true, lastName: true, profilePhoto: true } } } },
+        address: true,
+      },
     });
-
-    // TODO: Send notification to housekeeper
 
     logger.info(`Booking created: ${booking.bookingCode}`);
-
-    res.status(201).json({
-      success: true,
-      message: 'Booking created successfully',
-      data: booking
-    });
+    res.status(201).json({ success: true, message: 'Booking created successfully', data: booking });
   } catch (error) {
     logger.error('Create booking error:', error);
     next(error);
@@ -129,77 +100,78 @@ export const createBooking = async (
 
 /**
  * GET /api/v1/bookings
- * Get user's bookings
+ * Get user's bookings (client)
  */
-export const getBookings = async (
+export const getClientBookings = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
-
-    let whereClause: any = {};
-
-    if (req.user!.userType === 'CLIENT') {
-      const client = await prisma.client.findUnique({
-        where: { userId: req.user!.id }
-      });
-      whereClause.clientId = client?.id;
-    } else if (req.user!.userType === 'HOUSEKEEPER') {
-      const housekeeper = await prisma.housekeeper.findUnique({
-        where: { userId: req.user!.id }
-      });
-      whereClause.housekeeperId = housekeeper?.id;
+    const client = await prisma.client.findUnique({ where: { userId: req.user!.id } });
+    if (!client) {
+      res.status(404).json({ success: false, message: 'Client not found' });
+      return;
     }
-
-    if (status) {
-      whereClause.status = status;
-    }
+    
+    const whereClause: any = { clientId: client.id };
+    if (status) whereClause.status = status;
 
     const bookings = await prisma.booking.findMany({
       where: whereClause,
       include: {
-        client: {
-          include: {
-            user: {
-              select: {
-                firstName: true,
-                lastName: true,
-                profilePhoto: true
-              }
-            }
-          }
-        },
-        housekeeper: {
-          include: {
-            user: {
-              select: {
-                firstName: true,
-                lastName: true,
-                profilePhoto: true
-              }
-            }
-          }
-        },
-        address: true
+        housekeeper: { include: { user: { select: { firstName: true, lastName: true, profilePhoto: true } } } },
+        address: true,
       },
-      orderBy: {
-        scheduledDate: 'desc'
-      },
+      orderBy: { scheduledDate: 'desc' },
       take: parseInt(limit as string),
-      skip: (parseInt(page as string) - 1) * parseInt(limit as string)
+      skip: (parseInt(page as string) - 1) * parseInt(limit as string),
     });
-
-    res.json({
-      success: true,
-      data: bookings
-    });
+    res.json({ success: true, data: bookings });
   } catch (error) {
-    logger.error('Get bookings error:', error);
+    logger.error('Get client bookings error:', error);
     next(error);
   }
 };
+
+/**
+ * GET /api/v1/bookings/housekeeper
+ * Get housekeeper's bookings
+ */
+export const getHousekeeperBookings = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { status, page = 1, limit = 20 } = req.query;
+    const housekeeper = await prisma.housekeeper.findUnique({ where: { userId: req.user!.id } });
+    if (!housekeeper) {
+      res.status(404).json({ success: false, message: 'Housekeeper not found' });
+      return;
+    }
+
+    const whereClause: any = { housekeeperId: housekeeper.id };
+    if (status) whereClause.status = status as BookingStatus;
+
+    const bookings = await prisma.booking.findMany({
+      where: whereClause,
+      include: {
+        client: { include: { user: { select: { firstName: true, lastName: true, profilePhoto: true } } } },
+        address: true,
+      },
+      orderBy: { scheduledDate: 'desc' },
+      take: parseInt(limit as string),
+      skip: (parseInt(page as string) - 1) * parseInt(limit as string),
+    });
+    res.json({ success: true, data: bookings });
+  } catch (error) {
+    logger.error('Get housekeeper bookings error:', error);
+    next(error);
+  }
+};
+
 
 /**
  * GET /api/v1/bookings/:id
@@ -212,42 +184,56 @@ export const getBookingById = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-
     const booking = await prisma.booking.findUnique({
       where: { id },
       include: {
-        client: {
-          include: {
-            user: true
-          }
-        },
-        housekeeper: {
-          include: {
-            user: true
-          }
-        },
+        client: { include: { user: true } },
+        housekeeper: { include: { user: true } },
         address: true,
         payment: true,
-        review: true
-      }
+        review: true,
+      },
     });
 
     if (!booking) {
-      res.status(404).json({
-        success: false,
-        message: 'Booking not found'
-      });
+      res.status(404).json({ success: false, message: 'Booking not found' });
       return;
     }
-
-    res.json({
-      success: true,
-      data: booking
-    });
+    res.json({ success: true, data: booking });
   } catch (error) {
     logger.error('Get booking error:', error);
     next(error);
   }
+};
+
+/**
+ * PATCH /api/v1/bookings/:id/status
+ * Update booking status
+ */
+export const updateBookingStatus = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        if (!Object.values(BookingStatus).includes(status)) {
+            res.status(400).json({ success: false, message: 'Invalid status provided.' });
+            return;
+        }
+
+        const booking = await prisma.booking.update({
+            where: { id },
+            data: { status: status as BookingStatus },
+        });
+
+        res.json({ success: true, data: booking });
+    } catch (error) {
+        logger.error('Update booking status error:', error);
+        next(error);
+    }
 };
 
 /**
@@ -261,24 +247,20 @@ export const acceptBooking = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
+    const housekeeper = await prisma.housekeeper.findUnique({ where: { userId: req.user!.id } });
+    const bookingToUpdate = await prisma.booking.findUnique({ where: { id } });
+
+    if (!housekeeper || bookingToUpdate?.housekeeperId !== housekeeper.id) {
+      res.status(403).json({ success: false, message: 'Forbidden: You are not authorized to accept this booking.' });
+      return;
+    }
 
     const booking = await prisma.booking.update({
       where: { id },
-      data: {
-        status: 'ACCEPTED',
-        acceptedAt: new Date()
-      }
+      data: { status: 'ACCEPTED', acceptedAt: new Date() },
     });
-
-    // TODO: Send notification to client
-
     logger.info(`Booking accepted: ${booking.bookingCode}`);
-
-    res.json({
-      success: true,
-      message: 'Booking accepted',
-      data: booking
-    });
+    res.json({ success: true, message: 'Booking accepted', data: booking });
   } catch (error) {
     logger.error('Accept booking error:', error);
     next(error);
@@ -298,21 +280,24 @@ export const rejectBooking = async (
     const { id } = req.params;
     const { reason } = req.body;
 
+    const housekeeper = await prisma.housekeeper.findUnique({ where: { userId: req.user!.id } });
+    const bookingToUpdate = await prisma.booking.findUnique({ where: { id } });
+
+    if (!housekeeper || bookingToUpdate?.housekeeperId !== housekeeper.id) {
+      res.status(403).json({ success: false, message: 'Forbidden: You are not authorized to reject this booking.' });
+      return;
+    }
+
     const booking = await prisma.booking.update({
       where: { id },
       data: {
         status: 'REJECTED',
-        cancellationReason: reason
-      }
+        cancellationReason: reason,
+      },
     });
 
     logger.info(`Booking rejected: ${booking.bookingCode}`);
-
-    res.json({
-      success: true,
-      message: 'Booking rejected',
-      data: booking
-    });
+    res.json({ success: true, message: 'Booking rejected', data: booking });
   } catch (error) {
     logger.error('Reject booking error:', error);
     next(error);
@@ -338,19 +323,12 @@ export const cancelBooking = async (
         status: 'CANCELLED',
         cancellationReason: reason,
         cancelledBy: req.user!.userType,
-        cancelledAt: new Date()
-      }
+        cancelledAt: new Date(),
+      },
     });
-
-    // TODO: Handle refund logic
 
     logger.info(`Booking cancelled: ${booking.bookingCode}`);
-
-    res.json({
-      success: true,
-      message: 'Booking cancelled',
-      data: booking
-    });
+    res.json({ success: true, message: 'Booking cancelled', data: booking });
   } catch (error) {
     logger.error('Cancel booking error:', error);
     next(error);
@@ -358,42 +336,7 @@ export const cancelBooking = async (
 };
 
 /**
- * PUT /api/v1/bookings/:id/start
- * Start service
- */
-export const startBooking = async (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-  try {
-    const { id } = req.params;
-
-    const booking = await prisma.booking.update({
-      where: { id },
-      data: {
-        status: 'IN_PROGRESS',
-        actualStartTime: new Date()
-      }
-    });
-
-    // TODO: Send notification to client
-
-    logger.info(`Booking started: ${booking.bookingCode}`);
-
-    res.json({
-      success: true,
-      message: 'Service started',
-      data: booking
-    });
-  } catch (error) {
-    logger.error('Start booking error:', error);
-    next(error);
-  }
-};
-
-/**
- * PUT /api/v1/bookings/:id/complete
+ * POST /api/v1/bookings/:id/complete
  * Complete service
  */
 export const completeBooking = async (
@@ -403,33 +346,26 @@ export const completeBooking = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
+    const { tip } = req.body;
 
-    const booking = await prisma.booking.findUnique({
-      where: { id }
-    });
+    const booking = await prisma.booking.findUnique({ where: { id } });
 
     if (!booking || !booking.actualStartTime) {
-      res.status(400).json({
-        success: false,
-        message: 'Cannot complete booking that has not started'
-      });
+      res.status(400).json({ success: false, message: 'Cannot complete booking that has not started' });
       return;
     }
 
     const endTime = new Date();
     const durationMinutes = Math.floor((endTime.getTime() - booking.actualStartTime.getTime()) / 60000);
-
-    // Calculate extra time charge if applicable
+    
     let extraTimePrice = 0;
     if (durationMinutes > booking.estimatedDurationMinutes) {
-      const extraMinutes = durationMinutes - booking.estimatedDurationMinutes;
-      const housekeeper = await prisma.housekeeper.findUnique({
-        where: { id: booking.housekeeperId }
-      });
-      if (housekeeper) {
-        const hourlyRate = parseFloat(housekeeper.hourlyRate.toString());
-        extraTimePrice = (hourlyRate / 60) * extraMinutes;
-      }
+        const extraMinutes = durationMinutes - booking.estimatedDurationMinutes;
+        const housekeeper = await prisma.housekeeper.findUnique({ where: { id: booking.housekeeperId } });
+        if (housekeeper) {
+            const hourlyRate = parseFloat(housekeeper.hourlyRate.toString());
+            extraTimePrice = (hourlyRate / 60) * extraMinutes;
+        }
     }
 
     const updatedBooking = await prisma.booking.update({
@@ -439,23 +375,13 @@ export const completeBooking = async (
         actualEndTime: endTime,
         actualDurationMinutes: durationMinutes,
         extraTimePrice,
-        totalPrice: {
-          increment: extraTimePrice
-        },
-        completedAt: new Date()
-      }
+        totalPrice: { increment: extraTimePrice + (tip || 0) },
+        tip: tip || 0,
+      },
     });
-
-    // TODO: Process payment
-    // TODO: Send notification to client for rating
 
     logger.info(`Booking completed: ${booking.bookingCode}`);
-
-    res.json({
-      success: true,
-      message: 'Service completed',
-      data: updatedBooking
-    });
+    res.json({ success: true, message: 'Service completed', data: updatedBooking });
   } catch (error) {
     logger.error('Complete booking error:', error);
     next(error);

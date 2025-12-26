@@ -2,42 +2,33 @@ import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth.middleware';
 import {
   createBooking,
-  getBookings,
+  getClientBookings,
+  getHousekeeperBookings,
   getBookingById,
   acceptBooking,
-  rejectBooking,
-  cancelBooking,
-  startBooking,
+  // rejectBooking,
+  // cancelBooking,
+  updateBookingStatus,
   completeBooking
 } from '../controllers/booking.controller';
 
 const router = Router();
 
-// All routes require authentication
 router.use(authenticate);
 
-// POST /api/v1/bookings - Create new booking (client only)
+// Client-specific routes
 router.post('/', authorize('CLIENT'), createBooking);
+router.get('/client', authorize('CLIENT'), getClientBookings);
 
-// GET /api/v1/bookings - List user's bookings
-router.get('/', getBookings);
-
-// GET /api/v1/bookings/:id - Get booking details
-router.get('/:id', getBookingById);
-
-// PUT /api/v1/bookings/:id/accept - Housekeeper accepts booking
+// Housekeeper-specific routes
+router.get('/housekeeper', authorize('HOUSEKEEPER'), getHousekeeperBookings);
 router.put('/:id/accept', authorize('HOUSEKEEPER'), acceptBooking);
+// router.put('/:id/reject', authorize('HOUSEKEEPER'), rejectBooking);
+router.post('/:id/complete', authorize('HOUSEKEEPER'), completeBooking);
 
-// PUT /api/v1/bookings/:id/reject - Housekeeper rejects booking
-router.put('/:id/reject', authorize('HOUSEKEEPER'), rejectBooking);
-
-// DELETE /api/v1/bookings/:id - Cancel booking
-router.delete('/:id', cancelBooking);
-
-// PUT /api/v1/bookings/:id/start - Start service
-router.put('/:id/start', authorize('HOUSEKEEPER'), startBooking);
-
-// PUT /api/v1/bookings/:id/complete - Complete service
-router.put('/:id/complete', authorize('HOUSEKEEPER'), completeBooking);
+// Common routes
+router.get('/:id', getBookingById);
+router.patch('/:id/status', updateBookingStatus);
+// router.delete('/:id', cancelBooking);
 
 export default router;

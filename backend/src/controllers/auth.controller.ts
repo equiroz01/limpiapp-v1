@@ -98,7 +98,7 @@ export const register = async (
         }
       });
     } else if (userType === 'HOUSEKEEPER') {
-      await prisma.housekeeper.create({
+      const housekeeper = await prisma.housekeeper.create({
         data: {
           userId: user.id,
           hourlyRate: 0 // Will be set later during onboarding
@@ -108,7 +108,7 @@ export const register = async (
       // Create verification record
       await prisma.verification.create({
         data: {
-          housekeeperId: user.id
+          housekeeperId: housekeeper.id
         }
       });
     }

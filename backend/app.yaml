@@ -1,0 +1,65 @@
+# Google App Engine Standard Environment configuration
+# Alternative to Cloud Run - use this if you prefer App Engine
+runtime: nodejs18
+
+# Environment variables
+env_variables:
+  NODE_ENV: "production"
+  PORT: "8080"
+
+# Service configuration
+service: default
+
+# Instance class (F1, F2, F4, F4_1G)
+instance_class: F2
+
+# Automatic scaling configuration
+automatic_scaling:
+  target_cpu_utilization: 0.65
+  target_throughput_utilization: 0.6
+  min_instances: 0
+  max_instances: 10
+  min_pending_latency: 30ms
+  max_pending_latency: automatic
+  max_concurrent_requests: 80
+
+# Health check configuration
+liveness_check:
+  path: "/health"
+  check_interval_sec: 30
+  timeout_sec: 4
+  failure_threshold: 2
+  success_threshold: 2
+
+readiness_check:
+  path: "/health"
+  check_interval_sec: 5
+  timeout_sec: 4
+  failure_threshold: 2
+  success_threshold: 2
+  app_start_timeout_sec: 300
+
+# Network configuration
+network:
+  session_affinity: false
+
+# Handlers
+handlers:
+  - url: /.*
+    script: auto
+    secure: always
+    redirect_http_response_code: 301
+
+# Build configuration
+build:
+  source_url: gs://your-bucket/source.zip
+
+# VPC Access Connector (if needed for Cloud SQL or other VPC resources)
+# vpc_access_connector:
+#   name: projects/YOUR_PROJECT/locations/YOUR_REGION/connectors/YOUR_CONNECTOR
+
+# Secrets from Secret Manager
+# env_variables and secrets are mutually exclusive, use secrets for sensitive data
+# Example:
+# beta_settings:
+#   cloud_sql_instances: YOUR_PROJECT:YOUR_REGION:YOUR_INSTANCE
